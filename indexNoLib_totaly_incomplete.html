@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>three.js webgl - transform controls</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+    <link type="text/css" rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- <div id="info">
+      "W" translate | "E" rotate | "R" scale | "+/-" adjust size<br />
+      "Q" toggle world/local space | "Shift" snap to grid<br />
+      "X" toggle X | "Y" toggle Y | "Z" toggle Z | "Spacebar" toggle enabled<br />
+      "Esc" reset current transform<br />
+      "C" toggle camera | "V" random zoom
+    </div> -->
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./lib/three.module.js",
+          "lib/": "./lib/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from 'three';
+
+      import { DragControls } from 'lib/DragControls.js';
+      import { TransformControls } from 'lib/TransformControls.js';
+      import { OrbitControls } from 'lib/OrbitControls.js';
+
+      let container;
+      let camera, scene, renderer;
+      let dragControls, orbitControls, group, cubeMesh;
+      let cubeSelected = false;
+      let resizeAxis, dragCoords, draggingObject;
+
+      const objects = [];
+      const dragStartCoords = {};
+      const dragCurrentCoords = {};
+
+      const mouse = new THREE.Vector2(),
+        raycaster = new THREE.Raycaster();
+
+      init();
+
+      function init() {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+        camera.position.z = 15;
+        camera.position.x = 10;
+        camera.position.y = 10;
+        camera.lookAt(0, 0);
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f0f0);
+
+        scene.add(new THREE.AmbientLight(0xaaaaaa));
+
+        const light = new THREE.SpotLight(0xffffff, 10000);
+        light.position.set(0, 25, 50);
+        light.angle = Math.PI / 9;
+
+        light.castShadow = true;
+        light.shadow.camera.near = 10;
+        light.shadow.camera.far = 100;
+        light.shadow.mapSize.width = 1024;
+        light.shadow.mapSize.height = 1024;
+
+        scene.add(light);
+
+        group = new THREE.Group();
+
+        const controlSpheres = {
+          x: { x: 2, y: 0, z: 0 },
+          y: { x: 0, y: 2, z: 0 },
+          z: { x: 0, y: 0, z: 2 },
+        };
+
+        const cubeTexture = new THREE.TextureLoader().load('./textures/crate.gif', render);
+        cubeTexture.colorSpace = THREE.SRGBColorSpace;
+        const cubeGeometry = new THREE.BoxGeometry(controlSpheres.x.x * 2, controlSpheres.y.y * 2, controlSpheres.z.z * 2);
+        const cubeMaterial = new THREE.MeshLambertMaterial({ map: cubeTexture });
+        cubeMesh = new THREE.Mesh(cubeGeometry, cubeMaterial);
+        scene.add(cubeMesh);
+        scene.add(group);
+
+        const controlSphereGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+        for (let sphere in controlSpheres) {
+          const object = new THREE.Mesh(controlSphereGeometry, new THREE.MeshLambertMaterial({ color: Math.random() * 0xffffff }));
+          for (let dimension in controlSpheres[sphere]) {
+            object.position[dimension] = controlSpheres[sphere][dimension];
+          }
+          object.userData.axis = sphere;
+          scene.add(object);
+          objects.push(object);
+        }
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFShadowMap;
+
+        container.appendChild(renderer.domElement);
+
+        dragControls = new DragControls([...objects], camera, renderer.domElement);
+        dragControls.addEventListener('drag', render);
+
+        //
+
+        window.addEventListener('resize', onWindowResize);
+
+        document.addEventListener('click', onClick);
+        document.addEventListener('dragstart', (e) => { console.log(e); onDragStart(e)});
+        // document.addEventListener('drag', onDrag);
+        // document.addEventListener('dragend', onDragStart);
+
+        render();
+      }
+
+      function onDragStart(event) {
+        console.log(event);
+        // console.log(event.object.position);
+        // resizeAxis = event.object.userData.axis;
+        // dragStartCoords[resizeAxis] = event.object.position[resizeAxis];
+        // event.object.position.x = 5;
+        // event.object.position.y = 5;
+        // event.object.position.z = 5;
+
+        event.preventDefault();
+
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+
+        const intersections = raycaster.intersectObjects(objects, true);
+        if (intersections.length > 0) {
+          const object = intersections[0].object;
+          dragStartCoords = object.position;
+          console.log(dragStartCoords);
+        } else {
+          dragStartCoords = null;
+          console.log(dragStartCoords);
+
+        }
+        render();
+      }
+
+      function onDrag(event) {
+        const dragBall = event.object;
+        dragBall.position.projectOnPlane(new THREE.Vector3(0, 0, 1));
+        console.log(dragBall.position.length());
+        resizeAxis = dragBall.userData.axis;
+        dragCurrentCoords[resizeAxis] = dragBall.position[resizeAxis];
+        event.object.position.x = 5;
+        event.object.position.y = 5;
+        event.object.position.z = 5;
+        console.log(dragCurrentCoords[resizeAxis]);
+      }
+
+      function onDragEnd(event) {}
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        render();
+      }
+
+      function onClick(event) {
+        event.preventDefault();
+
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+
+        const intersections = raycaster.intersectObjects([cubeMesh], true);
+        if (intersections.length > 0) {
+          const object = intersections[0].object;
+
+          if (object === cubeMesh && cubeSelected) {
+            object.material.emissive.set(0x000000);
+            cubeSelected = false;
+          } else {
+            object.material.emissive.set(0xaaaaaa);
+            cubeSelected = true;
+          }
+        }
+        render();
+      }
+
+      function render() {
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
+</html>
